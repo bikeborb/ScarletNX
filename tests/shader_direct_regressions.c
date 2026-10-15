@@ -184,6 +184,48 @@ static void precise_math(void) {
     }
 }
 
+/* HFMA2 with an immediate B (DREDGE's fragment shaders): the two halves of B are 9-bit immediates at 20 and 30 with
+   their signs at 29 and 56, C is the register at 39 with its swizzle at 53 */
+static int has_constant(const u32* code, size_t words, u32 value) {
+    for (size_t i = 5; i < words;) {
+        u32 width = code[i] >> 16, op = code[i] & 0xffff;
+        if (!width || i + width > words) return 0;
+        if (op == 43 && width == 4 && code[i + 3] == value) return 1;
+        i += width;
+    }
+    return 0;
+}
+static int has_glsl_fma(const u32* code, size_t words) {
+    for (size_t i = 5; i < words;) {
+        u32 width = code[i] >> 16, op = code[i] & 0xffff;
+        if (!width || i + width > words) return 0;
+        if (op == 12 && width >= 5 && code[i + 4] == 50) return 1;
+        i += width;
+    }
+    return 0;
+}
+static void hfma2_immediate(void) {
+    static const struct {
+        u64 insn;
+        u32 imm;
+    } cases[] = {
+        {0x704384c611870b05ull, 0x46004600u}, /* HFMA2 R5, R11.H1_H1, 6, 6, R9.H0_H0 */
+        {0x716287c230871206ull, 0xc200c200u}, /* HFMA2 R6, R18.H0_H0, -3, -3, R15.H1_H1 */
+    };
+    for (size_t i = 0; i < sizeof cases / sizeof *cases; i++) {
+        ShaderInfo info;
+        size_t words = 0;
+        u32* code = translate(&cases[i].insn, 1, ST_FS, &info, &words, 1);
+        if (!code || info.unsupported) fprintf(stderr, "HFMA2 immediate: %s\n", info.first_unsupported);
+        check(code && !info.unsupported, "HFMA2 with an immediate translates");
+        if (code) {
+            check(has_constant(code, words, cases[i].imm), "HFMA2's immediate halves keep their values and signs");
+            check(has_glsl_fma(code, words), "HFMA2 with an immediate is a fused multiply-add");
+        }
+        free(code);
+    }
+}
+
 static void fragment_storage_images(void) {
     static const struct {
         u64 instructions[2];
@@ -590,6 +632,7 @@ int main(int argc, char** argv) {
     global_buffers();
     float_controls();
     precise_math();
+    hfma2_immediate();
     fragment_storage_images();
     nro_shader_modes();
     issue126_shader_modes();
