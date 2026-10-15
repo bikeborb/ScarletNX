@@ -521,6 +521,47 @@ static void probe_draw(GpuChannel* ch, const VkSh* fs, const TexRes* res, Surf* 
             e = *end ? end + 1 : end;
         }
     }
+    /* SNX_PROBE_GVA=gva,...: also the draws that sample a texture at one of those addresses, with the first 512 bytes
+       of each of their textures (read through gmem_read, which writes render targets back first) */
+    static int ginit, ngvas;
+    static u64 gvas[8];
+    static u32 gseen;
+    if (!ginit) {
+        ginit = 1;
+        const char* e = getenv("SNX_PROBE_GVA");
+        while (e && *e && ngvas < 8) {
+            char* end;
+            u64 k = strtoull(e, &end, 16);
+            if (end == e) break;
+            gvas[ngvas++] = k;
+            e = *end ? end + 1 : end;
+        }
+    }
+    int samples = 0;
+    for (int i = 0; i < fs->si.ntex && i < SH_MAXTEX && !samples; i++)
+        for (int g = 0; g < ngvas; g++)
+            if (res[i].have && res[i].t && res[i].t->gva == gvas[g]) samples = 1;
+    if (samples && gseen < 3) {
+        gseen++;
+        LOG("probe: gva draw %u: fs %016llx, %d textures\n", gseen, (unsigned long long)fs->hash, fs->si.ntex);
+        for (int i = 0; i < fs->si.ntex && i < SH_MAXTEX; i++) {
+            const TexRes* x = &res[i];
+            if (!x->have) continue;
+            LOG("probe:   tex%d tic %08x %08x %08x %08x %08x %08x %08x %08x\n", i, x->tic[0], x->tic[1], x->tic[2],
+                x->tic[3], x->tic[4], x->tic[5], x->tic[6], x->tic[7]);
+            if (!x->t) continue;
+            LOG("probe:   tex%d surf gva %llx %ux%u vk %d fkey %x bgra %d depth %d is_rt %d bl %u bh %u\n", i,
+                (unsigned long long)x->t->gva, x->t->w, x->t->h, (int)x->t->f.vk, x->t->fkey, x->t->f.bgra,
+                x->t->f.depth, x->t->is_rt, x->t->bl, x->t->bh);
+            u32 m[128] = {0};
+            gmem_read(x->t->gva, m, sizeof m);
+            for (u32 k = 0; k < 128; k += 16)
+                LOG("probe:   tex%d +%3u %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x "
+                    "%08x\n",
+                    i, k * 4, m[k], m[k + 1], m[k + 2], m[k + 3], m[k + 4], m[k + 5], m[k + 6], m[k + 7], m[k + 8],
+                    m[k + 9], m[k + 10], m[k + 11], m[k + 12], m[k + 13], m[k + 14], m[k + 15]);
+        }
+    }
     int which = -1;
     for (int i = 0; i < nkeys; i++)
         if (keys[i] == fs->hash) which = i;
