@@ -226,6 +226,48 @@ static void hfma2_immediate(void) {
     }
 }
 
+/* F2F between two halves with bit 42 rounds to an integer: DREDGE's colour grading takes frac() of a half as x minus
+   F2F.F16.F16.FLOOR of it, and without the floor every colour came out grey */
+static int glsl_ext_count(const u32* code, size_t words, u32 inst) {
+    int found = 0;
+    for (size_t i = 5; i < words;) {
+        u32 width = code[i] >> 16, op = code[i] & 0xffff;
+        if (!width || i + width > words) return -1;
+        if (op == 12 && width >= 5 && code[i + 4] == inst) found++;
+        i += width;
+    }
+    return found;
+}
+static void f2f_half_rounding(void) {
+    static const struct {
+        u64 insn;
+        u32 glsl; /* GLSL.std.450: 1 Round, 2 RoundEven, 3 Trunc, 8 Floor, 9 Ceil */
+        const char* what;
+    } cases[] = {
+        {0x5ca8068000270508ull, 8, "F2F.F16.F16.FLOOR of the high half floors"},
+        {0x5ca8048000570507ull, 8, "F2F.F16.F16.FLOOR of the low half floors"},
+        {0x5ca8068000270508ull & ~(1ull << 39), 2, "F2F.F16.F16.ROUND rounds to even"},
+        {0x5ca8068000270508ull | (1ull << 40), 3, "F2F.F16.F16.TRUNC truncates"},
+        {0x5ca8068000270508ull & ~(1ull << 39) | (1ull << 40), 9, "F2F.F16.F16.CEIL rounds up"},
+    };
+    for (size_t i = 0; i < sizeof cases / sizeof *cases; i++) {
+        ShaderInfo info;
+        size_t words = 0;
+        u32* code = translate(&cases[i].insn, 1, ST_FS, &info, &words, 1);
+        check(code && !info.unsupported, "F2F between halves translates");
+        if (code) check(glsl_ext_count(code, words, cases[i].glsl) > 0, cases[i].what);
+        free(code);
+    }
+    /* without bit 42 it stays a plain move */
+    u64 plain = 0x5ca8068000270508ull & ~(1ull << 42);
+    ShaderInfo info;
+    size_t words = 0;
+    u32* code = translate(&plain, 1, ST_FS, &info, &words, 1);
+    check(code && !info.unsupported, "F2F between halves without rounding translates");
+    if (code) check(glsl_ext_count(code, words, 8) == 0, "F2F between halves without bit 42 does not floor");
+    free(code);
+}
+
 static void fragment_storage_images(void) {
     static const struct {
         u64 instructions[2];
@@ -745,6 +787,7 @@ int main(int argc, char** argv) {
     float_controls();
     precise_math();
     hfma2_immediate();
+    f2f_half_rounding();
     fragment_storage_images();
     nro_shader_modes();
     issue126_shader_modes();
