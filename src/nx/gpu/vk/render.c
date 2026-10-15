@@ -504,6 +504,68 @@ static void tex_resolve(GpuChannel* ch, u32 handle, TexRes* x) {
     x->have = 1;
 }
 
+/* DEBUG (borb/probe-grey, not for merging): SNX_PROBE_FS=hash,hash,... logs the first draws of those fragment
+   shaders: their textures, render targets and constant buffers */
+static void probe_draw(GpuChannel* ch, const VkSh* fs, const TexRes* res, Surf* const* rt, u32 n) {
+    static int init, nkeys;
+    static u64 keys[16];
+    static u32 seen[16];
+    if (!init) {
+        init = 1;
+        const char* e = getenv("SNX_PROBE_FS");
+        while (e && *e && nkeys < 16) {
+            char* end;
+            u64 k = strtoull(e, &end, 16);
+            if (end == e) break;
+            keys[nkeys++] = k;
+            e = *end ? end + 1 : end;
+        }
+    }
+    int which = -1;
+    for (int i = 0; i < nkeys; i++)
+        if (keys[i] == fs->hash) which = i;
+    if (which < 0 || seen[which]++ >= 3) return;
+    (void)ch;
+    LOG("probe: fs %016llx draw %u: %d textures, %u targets\n", (unsigned long long)fs->hash, seen[which], fs->si.ntex,
+        n);
+    for (u32 j = 0; j < n; j++)
+        if (rt[j])
+            LOG("probe:   rt%u gva %llx %ux%u vk %d fkey %x bgra %d\n", j, (unsigned long long)rt[j]->gva, rt[j]->w,
+                rt[j]->h, (int)rt[j]->f.vk, rt[j]->fkey, rt[j]->f.bgra);
+    for (int i = 0; i < fs->si.ntex && i < SH_MAXTEX; i++) {
+        const TexRes* x = &res[i];
+        const ShTex* st = &fs->si.tex[i];
+        LOG("probe:   tex%d cbuf_off %u bindless %u type %u handle %x have %d\n", i, st->cbuf_off, st->bindless,
+            st->type, x->handle, x->have);
+        if (!x->have) continue;
+        LOG("probe:     tic %08x %08x %08x %08x %08x %08x %08x %08x tsc %08x %08x %08x %08x\n", x->tic[0], x->tic[1],
+            x->tic[2], x->tic[3], x->tic[4], x->tic[5], x->tic[6], x->tic[7], x->tsc[0], x->tsc[1], x->tsc[2],
+            x->tsc[3]);
+        if (x->t)
+            LOG("probe:     surf gva %llx %ux%u vk %d fkey %x bgra %d depth %d int %d is_rt %d\n",
+                (unsigned long long)x->t->gva, x->t->w, x->t->h, (int)x->t->f.vk, x->t->fkey, x->t->f.bgra,
+                x->t->f.depth, x->t->f.is_int, x->t->is_rt);
+        else
+            LOG("probe:     no surface\n");
+        u64 gva = ((u64)(x->tic[2] & 0xFFFF) << 32) | x->tic[1];
+        u32 w[16] = {0};
+        if (gva) gmem_read(gva, w, sizeof w);
+        LOG("probe:     mem %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x\n", w[0],
+            w[1], w[2], w[3], w[4], w[5], w[6], w[7], w[8], w[9], w[10], w[11], w[12], w[13], w[14], w[15]);
+    }
+    for (u32 idx = 0; idx < 18; idx++) {
+        u64 a = g_vk_cb[4][idx];
+        if (!a) continue;
+        u32 words[64] = {0};
+        u32 sz = g_vk_cbsize[4][idx];
+        gmem_read(a, words, sz && sz < sizeof words ? sz : sizeof words);
+        LOG("probe:   cb%u gva %llx size %u\n", idx, (unsigned long long)a, sz);
+        for (u32 k = 0; k < 64; k += 8)
+            LOG("probe:     cb%u[%2u] %08x %08x %08x %08x %08x %08x %08x %08x\n", idx, k, words[k], words[k + 1],
+                words[k + 2], words[k + 3], words[k + 4], words[k + 5], words[k + 6], words[k + 7]);
+    }
+}
+
 /* the fragment shader keyed on which of its textures and outputs are integer. The textures it resolves for that are
    kept in res (SH_MAXTEX entries), for stage_set */
 static VkSh* fs_get_keyed(GpuChannel* ch, u64 addr, TexRes* res) {
@@ -1147,6 +1209,7 @@ retry:
     Surf* zt;
     u32 n;
     read_targets(ch, rt, &zt, &n);
+    if (fs) probe_draw(ch, fs, fres, rt, n);
     /* a color target the fragment shader samples but doesn't write (no output for it, or a write mask of 0) is drawn
        without: Tears of the Kingdom's lighting passes keep the whole G-buffer bound while they read some of it, which
        Maxwell allows, and Vulkan can't sample an attachment of the pass */
