@@ -1188,7 +1188,8 @@ static int supported(u64 w, int op) {
         case O_HMUL2_I:
         case O_HFMA2_R:
         case O_HFMA2_RC:
-        case O_HFMA2_CR: return 1;
+        case O_HFMA2_CR:
+        case O_HFMA2_I: return 1;
         case O_HSET2_R:
         case O_HSET2_C:
         case O_HSET2_I: return 1;
@@ -1977,11 +1978,12 @@ u32* shader_to_spirv(const u8* code, u32 max_bytes, int stage, ShaderInfo* si, s
         }
         if (op->id == O_HADD2_R || op->id == O_HADD2_C || op->id == O_HADD2_I || op->id == O_HMUL2_R ||
             op->id == O_HMUL2_C || op->id == O_HMUL2_I || op->id == O_HFMA2_R || op->id == O_HFMA2_RC ||
-            op->id == O_HFMA2_CR) {
+            op->id == O_HFMA2_CR || op->id == O_HFMA2_I) {
             needs_glsl = 1;
             if (a < 255) used[a] = 1;
             if ((op->id == O_HADD2_R || op->id == O_HMUL2_R || op->id == O_HFMA2_R) && b < 255) used[b] = 1;
-            if ((op->id == O_HFMA2_R || op->id == O_HFMA2_RC || op->id == O_HFMA2_CR) && B(insn[i], 39, 8) < 255)
+            if ((op->id == O_HFMA2_R || op->id == O_HFMA2_RC || op->id == O_HFMA2_CR || op->id == O_HFMA2_I) &&
+                B(insn[i], 39, 8) < 255)
                 used[B(insn[i], 39, 8)] = 1;
         }
         if (op->id == O_HSET2_R || op->id == O_HSET2_C || op->id == O_HSET2_I) {
@@ -4599,14 +4601,14 @@ u32* shader_to_spirv(const u8* code, u32 max_bytes, int stage, ShaderInfo* si, s
                 result = spv_emit_fadd(&c->emit, c->f32_type, lhs, rhs);
             reg_write(c, d, spv_emit_bitcast(&c->emit, c->u32_type, result));
         } else if (op == O_HADD2_R || op == O_HADD2_C || op == O_HADD2_I || op == O_HMUL2_R || op == O_HMUL2_C ||
-                   op == O_HMUL2_I || op == O_HFMA2_R || op == O_HFMA2_RC || op == O_HFMA2_CR) {
+                   op == O_HMUL2_I || op == O_HFMA2_R || op == O_HFMA2_RC || op == O_HFMA2_CR || op == O_HFMA2_I) {
             int reg_b = op == O_HADD2_R || op == O_HMUL2_R || op == O_HFMA2_R || op == O_HFMA2_RC;
             int cbuf_b = op == O_HADD2_C || op == O_HMUL2_C || op == O_HFMA2_CR;
-            int fma = op == O_HFMA2_R || op == O_HFMA2_RC || op == O_HFMA2_CR;
+            int fma = op == O_HFMA2_R || op == O_HFMA2_RC || op == O_HFMA2_CR || op == O_HFMA2_I;
             int multiply = op == O_HMUL2_R || op == O_HMUL2_C || op == O_HMUL2_I;
             u32 raw_b;
             u32 lhs;
-            int rc, cr;
+            int rc, cr, imm_c;
             u32 swizzle_b;
             int abs_b;
             int neg_b;
@@ -4625,9 +4627,11 @@ u32* shader_to_spirv(const u8* code, u32 max_bytes, int stage, ShaderInfo* si, s
                                 : !multiply || !reg_b ? B(w, 43, 1)
                                                       : 0);
             /* A constant buffer operand is one F32 for both halves. The HFMA2 forms with one keep B's (RC) or C's
-               (CR) register swizzle at 53, neg_b at 56, neg_c at 51 and saturate at 52. */
+               (CR) register swizzle at 53, neg_b at 56, neg_c at 51 and saturate at 52. The immediate form (I) has
+               C's at 53 and neg_c at 51 too; its B carries its own signs (29 and 56), so it has no neg_b. */
             rc = op == O_HFMA2_RC;
             cr = op == O_HFMA2_CR;
+            imm_c = op == O_HFMA2_I;
             swizzle_b = cbuf_b ? 1 : rc ? B(w, 53, 2) : reg_b ? B(w, 28, 2) : 0;
             abs_b = fma ? 0 : reg_b ? (int)B(w, 30, 1) : cbuf_b ? (int)B(w, 54, 1) : 0;
             neg_b = rc || cr || op == O_HADD2_C ? (int)B(w, 56, 1) : reg_b ? (int)B(w, 31, 1) : 0;
@@ -4635,9 +4639,9 @@ u32* shader_to_spirv(const u8* code, u32 max_bytes, int stage, ShaderInfo* si, s
             u32 pair;
             if (fma) {
                 u32 add_raw = rc ? cbuf_word(c, w) : reg_read(c, B(w, 39, 8));
-                u32 swizzle_c = rc ? 1 : cr ? B(w, 53, 2) : B(w, 35, 2);
+                u32 swizzle_c = rc ? 1 : cr || imm_c ? B(w, 53, 2) : B(w, 35, 2);
                 u32 addend = half_pair_mod(c, vec2, half_pair(c, vec2, add_raw, swizzle_c), 0,
-                                           rc || cr ? B(w, 51, 1) : B(w, 30, 1));
+                                           rc || cr || imm_c ? B(w, 51, 1) : B(w, 30, 1));
                 pair = spv_emit_glsl_ternary(&c->emit, vec2, c->glsl, SPV_GLSL_FMA, lhs, rhs, addend);
             } else
                 pair = multiply ? spv_emit_fmul(&c->emit, vec2, lhs, rhs) : spv_emit_fadd(&c->emit, vec2, lhs, rhs);
