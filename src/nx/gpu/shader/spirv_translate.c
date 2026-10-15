@@ -4003,8 +4003,11 @@ u32* shader_to_spirv(const u8* code, u32 max_bytes, int stage, ShaderInfo* si, s
             } else
                 src = spv_emit_bitcast(&c->emit, c->f32_type, raw);
             src = float_mod(c, src, B(w, 49, 1), B(w, 45, 1));
+            /* Between two floats of one size, bit 42 makes it an integer rounding (39-40: even, floor, ceil, trunc),
+               F16 as well as F32: Unity's half-precision frac() is an F2F.F16.F16.FLOOR. Between sizes, 39-40 is
+               the conversion's rounding, which this translation leaves to the host */
             static const SpvGlsl450Op rounds[] = {SPV_GLSL_ROUND_EVEN, SPV_GLSL_FLOOR, SPV_GLSL_CEIL, SPV_GLSL_TRUNC};
-            if (B(w, 8, 2) == 2 && B(w, 10, 2) == 2 && B(w, 42, 1))
+            if (B(w, 8, 2) == B(w, 10, 2) && B(w, 42, 1))
                 src = spv_emit_glsl_unary(&c->emit, c->f32_type, c->glsl, rounds[B(w, 39, 2)], src);
             src = float_saturate(c, src, B(w, 50, 1));
             u32 result;
