@@ -553,13 +553,25 @@ static void probe_draw(GpuChannel* ch, const VkSh* fs, const TexRes* res, Surf* 
             LOG("probe:   tex%d surf gva %llx %ux%u vk %d fkey %x bgra %d depth %d is_rt %d bl %u bh %u\n", i,
                 (unsigned long long)x->t->gva, x->t->w, x->t->h, (int)x->t->f.vk, x->t->fkey, x->t->f.bgra,
                 x->t->f.depth, x->t->is_rt, x->t->bl, x->t->bh);
-            u32 m[128] = {0};
-            gmem_read(x->t->gva, m, sizeof m);
-            for (u32 k = 0; k < 128; k += 16)
-                LOG("probe:   tex%d +%3u %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x "
-                    "%08x\n",
-                    i, k * 4, m[k], m[k + 1], m[k + 2], m[k + 3], m[k + 4], m[k + 5], m[k + 6], m[k + 7], m[k + 8],
-                    m[k + 9], m[k + 10], m[k + 11], m[k + 12], m[k + 13], m[k + 14], m[k + 15]);
+            /* render targets: written back first, so memory holds what the GPU drew */
+            if (x->t->is_rt && vk_surf_can_writeback(x->t)) vk_surf_flush(x->t, NULL);
+            /* the first GOB (64 bytes x 8 rows) and the one at the middle of the image */
+            u32 bhg = x->t->bl ? 1u << x->t->bh : 1, wb = x->t->w * (x->t->f.bpp ? x->t->f.bpp : 4);
+            u32 gobs_x = (wb + 63) / 64, cx = wb / 2, cy = x->t->h / 2;
+            u64 mid = x->t->bl
+                          ? ((u64)(cy / (8 * bhg)) * gobs_x + cx / 64) * (512ull * bhg) + ((cy % (8 * bhg)) / 8) * 512
+                          : (u64)cy * x->t->pitch + (cx & ~63u);
+            for (int part = 0; part < 2; part++) {
+                u32 m[128] = {0};
+                u64 off = part ? mid : 0;
+                gmem_read(x->t->gva + off, m, sizeof m);
+                for (u32 k = 0; k < 128; k += 16)
+                    LOG("probe:   tex%d %s+%3u %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x %08x "
+                        "%08x %08x\n",
+                        i, part ? "mid" : "top", k * 4, m[k], m[k + 1], m[k + 2], m[k + 3], m[k + 4], m[k + 5],
+                        m[k + 6], m[k + 7], m[k + 8], m[k + 9], m[k + 10], m[k + 11], m[k + 12], m[k + 13], m[k + 14],
+                        m[k + 15]);
+            }
         }
     }
     int which = -1;
