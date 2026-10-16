@@ -268,6 +268,26 @@ static void f2f_half_rounding(void) {
     free(code);
 }
 
+/* TMML.B (Super Mario Odyssey's fragment shaders): TMML with the handle in Rb, as citron's TMML_b reads it */
+static void tmml_bindless(void) {
+    const u64 tmml[] = {
+        (0x4c98078805a7001eull & ~0xffull) | 6, /* MOV R6, c[0x2][0x168]: the handle */
+        0x5c9807800ff70000ull,                  /* MOV R0, RZ */
+        0x5c9807800ff70001ull,                  /* MOV R1, RZ */
+        0xdf60000120670003ull,                  /* TMML.B R3, R0, R6, 2D, one component (Odyssey's word) */
+    };
+    ShaderInfo info;
+    size_t words = 0;
+    u32* code = translate(tmml, 4, ST_FS, &info, &words, 1);
+    if (!code || info.unsupported) fprintf(stderr, "TMML.B: %s\n", info.first_unsupported);
+    check(code && !info.unsupported, "TMML.B translates");
+    if (code) {
+        check(info.ntex == 1 && info.tex[0].bindless && info.tex[0].bl_cbuf == 2, "TMML.B queries its tracked handle");
+        check(count_opcode(code, words, 105, 0xffffffffu) > 0, "TMML.B is an OpImageQueryLod");
+    }
+    free(code);
+}
+
 static void fragment_storage_images(void) {
     static const struct {
         u64 instructions[2];
@@ -788,6 +808,7 @@ int main(int argc, char** argv) {
     precise_math();
     hfma2_immediate();
     f2f_half_rounding();
+    tmml_bindless();
     fragment_storage_images();
     nro_shader_modes();
     issue126_shader_modes();

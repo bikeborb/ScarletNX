@@ -179,6 +179,7 @@ enum {
     O_TXQ,
     O_TXQ_B,
     O_TMML,
+    O_TMML_B,
     O_TXD,
     O_SULD,
     O_SUST,

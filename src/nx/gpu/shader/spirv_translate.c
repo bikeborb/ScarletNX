@@ -598,6 +598,7 @@ int shader_writes_reg(u64 w, int op, u32 reg) {
         case O_TLD4:
         case O_TLD4_B:
         case O_TMML:
+        case O_TMML_B:
         case O_TXD: count = direct_mask_count(B(w, 31, 4) ? B(w, 31, 4) : 15); break;
         case O_TXQ:
         case O_TXQ_B: count = direct_mask_count(B(w, 31, 4)); break;
@@ -1217,7 +1218,8 @@ static int supported(u64 w, int op) {
         case O_DMNMX_I: return !B(w, 47, 1);
         case O_TEX: return texture_sample_supported(w, 0);
         case O_TEX_B: return texture_sample_supported(w, 1);
-        case O_TMML: return B(w, 28, 3) == 2;
+        case O_TMML:
+        case O_TMML_B: return B(w, 28, 3) == 2;
         case O_FSETP_R:
         case O_FSETP_C:
         case O_FSETP_I: return 1;
@@ -1398,7 +1400,7 @@ u32* shader_to_spirv(const u8* code, u32 max_bytes, int stage, ShaderInfo* si, s
         if (!IDX_OK(i)) continue;
         const Op* op = decode(insn[i]);
         if (!op || !supported(insn[i], op->id) || !stage_has(insn[i], op->id, stage) ||
-            (stage != ST_FS && op->id == O_TMML) || (stage != ST_FS && op->id == O_IPA) ||
+            (stage != ST_FS && (op->id == O_TMML || op->id == O_TMML_B)) || (stage != ST_FS && op->id == O_IPA) ||
             (stage != ST_FS && op->id == O_KIL) ||
             (stage != ST_CS && op->id == O_S2R &&
              ((B(insn[i], 20, 8) >= 0x21 && B(insn[i], 20, 8) <= 0x23) ||
@@ -2139,17 +2141,34 @@ u32* shader_to_spirv(const u8* code, u32 max_bytes, int stage, ShaderInfo* si, s
                     if (dst < 255) dst++;
                 }
         }
-        if (op->id == O_TMML) {
-            u32 off = B(insn[i], 36, 13);
-            int slot = direct_query_slot(textures, texture_count, off, 0, 0, 0, 0, 0, 0, 0);
+        if (op->id == O_TMML || op->id == O_TMML_B) {
+            /* TMML.B takes the handle in Rb, the coordinates in Ra as TMML (citron's TMML_b) */
+            int bindless = op->id == O_TMML_B;
+            u32 off = B(insn[i], 36, 13), bank = 0, bank2 = 0, off2 = 0, indexed = 0, ldc = 0;
+            int handle_count =
+                bindless ? direct_track_image_handle_pair(insn, n, i, b, &bank, &off, &bank2, &off2, 0) : 0;
+            if (bindless && !handle_count) return direct_reject(si, "untracked texture handle");
+            if (handle_count == 1) indexed = direct_indexed_handle(insn, n, i, b, stage, &ldc);
+            int slot = direct_query_slot(textures, texture_count, off, bindless, bank, handle_count, bank2, off2,
+                                         indexed, ldc);
             if (slot == texture_count) {
                 if (texture_count >= 32) return direct_reject(si, "texture descriptor count");
                 textures[slot].cbuf_off = off;
                 textures[slot].type = 1;
+                textures[slot].bindless = (u8)bindless;
+                textures[slot].bl_cbuf = (u8)bank;
+                textures[slot].bl2 = handle_count == 2;
+                textures[slot].bl2_cbuf = (u8)bank2;
+                textures[slot].bl2_off = off2;
+                if (indexed) {
+                    textures[slot].flags |= (u8)indexed;
+                    textures[slot].bl2_off = ldc;
+                }
                 texture_count++;
             }
             if (a < 255) used[a] = 1;
             if (a + 1 < 255) used[a + 1] = 1;
+            if (bindless && b < 255) used[b] = 1;
             needs_image_query = 1;
         }
         if (op->id == O_TXQ || op->id == O_TXQ_B) {
@@ -5098,9 +5117,15 @@ u32* shader_to_spirv(const u8* code, u32 max_bytes, int stage, ShaderInfo* si, s
                     reg_write(c, dst, values[k]);
                     if (dst < 255) dst++;
                 }
-        } else if (op == O_TMML) {
-            u32 off = B(w, 36, 13);
-            int slot = direct_query_slot(textures, texture_count, off, 0, 0, 0, 0, 0, 0, 0);
+        } else if (op == O_TMML || op == O_TMML_B) {
+            int bindless = op == O_TMML_B;
+            u32 off = B(w, 36, 13), bank = 0, bank2 = 0, off2 = 0, indexed = 0, ldc = 0;
+            int handle_count =
+                bindless ? direct_track_image_handle_pair(insn, n, i, b, &bank, &off, &bank2, &off2, 0) : 0;
+            if (handle_count == 1) indexed = direct_indexed_handle(insn, n, i, b, stage, &ldc);
+            int slot = direct_query_slot(textures, texture_count, off, bindless, bank, handle_count, bank2, off2,
+                                         indexed, ldc);
+            if (textures[slot].flags & SNX_TEX_INDEXED) direct_swap_element(c, slot);
             u32 x = spv_emit_bitcast(&c->emit, c->f32_type, reg_read(c, a));
             u32 y = spv_emit_bitcast(&c->emit, c->f32_type, reg_read(c, a + 1));
             u32 coords = spv_emit_vec2_construct(&c->emit, vec2, x, y);
