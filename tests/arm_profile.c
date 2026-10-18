@@ -38,6 +38,15 @@ int main(void) {
     }
     assert(snx_a32_decode_profile(SNX_ARM_PROFILE_ARM11, 0xe1631381) == SNX_A32_UNDEFINED); /* SMULBB, Rn not 0 */
     assert(snx_a32_decode_profile(SNX_ARM_PROFILE_ARM11, 0xe14442c1) == SNX_A32_UNDEFINED); /* SMLAL RdHi == RdLo */
+    /* ARMv6 saturation (llvm-mc -mcpu=mpcore): usat r5,#8,r5; ssat r3,#16,r1,lsl #3; usat r2,#31,r4,asr #32 */
+    const uint32_t sat[] = {0xe6e85015, 0xe6af3191, 0xe6ff2054};
+    for (unsigned i = 0; i < sizeof sat / sizeof *sat; ++i) {
+        assert(snx_a32_decode_profile(SNX_ARM_PROFILE_ARM11, sat[i]) == SNX_A32_SAT);
+        assert(snx_a32_decode_profile(SNX_ARM_PROFILE_ARM11, sat[i] | 15u) == SNX_A32_UNDEFINED);     /* Rn = PC */
+        assert(snx_a32_decode_profile(SNX_ARM_PROFILE_ARM11, sat[i] | 0xf000u) == SNX_A32_UNDEFINED); /* Rd = PC */
+        assert(snx_a32_decode_profile(SNX_ARM_PROFILE_A57, sat[i]) != SNX_A32_SAT);
+    }
+    assert(snx_a32_decode_profile(SNX_ARM_PROFILE_ARM11, 0xe6af3f31) != SNX_A32_SAT); /* ssat16 r3,#16,r1 */
     assert(snx_a32_decode_profile((SnxArmProfile)99, 0xe1a00000) == SNX_A32_UNDEFINED);
     uint32_t state = 1234;
     for (unsigned i = 0; i < 100000; ++i) {

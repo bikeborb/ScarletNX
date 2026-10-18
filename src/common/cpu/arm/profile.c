@@ -64,6 +64,12 @@ SnxA32Kind snx_a32_decode_profile(SnxArmProfile profile, uint32_t w) {
             return SNX_A32_UNDEFINED;
         return SNX_A32_MULH;
     }
+    /* ARMv6 saturation: SSAT (bit 22 clear) and USAT, cond 0110 1u1 sat Rd imm5 sh01 Rn. A PC operand is
+       UNPREDICTABLE and rejected. SSAT16 and USAT16 (bits 7..4 0011) are not admitted */
+    if ((w & 0x0fa00030) == 0x06a00010 && (w >> 28) != 15) {
+        if (((w >> 12) & 15) == 15 || (w & 15) == 15) return SNX_A32_UNDEFINED;
+        return SNX_A32_SAT;
+    }
     SnxA32Kind kind = snx_a32_decode(w);
     switch (kind) {
         case SNX_A32_MOVW:

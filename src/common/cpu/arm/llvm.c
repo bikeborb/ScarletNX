@@ -617,6 +617,22 @@ static void halfword_multiply(ArmIR* a) {
     }
     setreg(a, d, r);
 }
+/* SSAT and USAT: Rn shifted left, or arithmetically right (#0 meaning #32, which gives what #31 does), clamped to a
+   signed sat_imm + 1 bits or an unsigned sat_imm bits, setting the sticky Q flag (CPSR bit 27) when it was clamped */
+static void saturate(ArmIR* a) {
+    uint32_t w = a->word;
+    unsigned bits = (w >> 16) & 31, shift = (w >> 7) & 31;
+    LLVMValueRef x = reg(a, w & 15);
+    if (w & 0x40)
+        x = LLVMBuildAShr(a->b, x, c32(a, shift ? shift : 31), "");
+    else if (shift)
+        x = shl(a, x, shift);
+    uint32_t high = (uint32_t)((UINT64_C(1) << bits) - 1), low = w & (1u << 22) ? 0 : ~high;
+    LLVMValueRef top = c32(a, high), bottom = c32(a, low);
+    LLVMValueRef r = choose(a, cmp(a, LLVMIntSLT, x, bottom), bottom, choose(a, cmp(a, LLVMIntSGT, x, top), top, x));
+    PUT(a, cpsr, bor(a, GET(a, cpsr), shl(a, z32(a, cmp(a, LLVMIntNE, r, x)), 27)));
+    setreg(a, (w >> 12) & 15, r);
+}
 static void miscellaneous(ArmIR* a, SnxA32Kind kind) {
     uint32_t w = a->word;
     unsigned d = (w >> 12) & 15, n = (w >> 16) & 15;
@@ -734,6 +750,7 @@ static int instruction(ArmIR* a, SnxA32Kind kind) {
         case SNX_A32_MULL:
         case SNX_A32_MLS: multiply(a, kind); break;
         case SNX_A32_MULH: halfword_multiply(a); break;
+        case SNX_A32_SAT: saturate(a); break;
         case SNX_A32_EXCLUSIVE:
             if (a->memory == SNX_ARM_MEMORY_CHECKED)
                 checked_exclusive(a);

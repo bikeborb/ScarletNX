@@ -4,7 +4,9 @@
 #define SNX_CTR_MODULE_H
 #include "3ds/runtime/ctr_process.h"
 #define SNX_CTR_MODULE_MAGIC         UINT64_C(0x31525443584e5353)
-#define SNX_CTR_MODULE_ABI           1u
+/* Bumped when what a compiled module contains changes, the ARM11 decoder's or the emitter's instructions included: the
+   driver then compiles an older module again instead of running it (2: SSAT and USAT) */
+#define SNX_CTR_MODULE_ABI           2u
 #define SNX_CTR_MODULE_CODEGEN_ABI   1u
 #define SNX_CTR_MODULE_CHECKED_MODE  1u
 /* Offline compilation bounds, NOT a general title-support guarantee. Tiny

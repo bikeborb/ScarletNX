@@ -51,6 +51,20 @@ def main():
                 elif op == 2 and d == n:
                     continue
                 A.case(condition << 28 | mulh(op, x, y, d, n, s, m), 'mulh')
+
+    # ARMv6 SSAT and USAT: sat_imm (20:16), Rd (15:12), imm5 (11:7), sh (6, ASR when set, #0 meaning #32), Rn (3:0).
+    # Every saturation width with a few shifts, all 15 conditions for one form. 'mulh' seeds clear the sticky Q flag
+    # on half the seeds, so a clamp is seen setting it.
+    def sat(unsigned, bits, d, shift, asr, n):
+        return 0x06A00010 | unsigned << 22 | bits << 16 | d << 12 | shift << 7 | asr << 6 | n
+
+    for unsigned in (0, 1):
+        for bits in range(32):
+            for shift, asr in ((0, 0), (3, 0), (31, 0), (0, 1), (5, 1)) if bits in (0, 7, 8, 15, 31) else ((0, 0),):
+                for d, n in ((3, 1), (1, 1)):
+                    conditions = range(15) if (unsigned, bits, shift, asr, d) == (1, 8, 0, 0, 3) else (14,)
+                    for condition in conditions:
+                        A.case(condition << 28 | sat(unsigned, bits, d, shift, asr, n), 'mulh')
     # A32 base-in-list transfers with writeback: ARM11 MPCore (and ARMv8)
     # semantics, checked against Unicorn. STM stores the old base; LDM's
     # loaded base wins over writeback.
