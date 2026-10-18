@@ -122,7 +122,7 @@ TLS command words; `0x35` identifies the actual process root. A separate SwIPC
 `srv:` supports client registration and service lookup with real session
 ownership. Initial 3b adds a one-application APT startup lifecycle, real recursive
 lock/events, serialized thread contexts/waits/wakeups, PTM base/model queries
-and HID handles/read-only mapping. HID sampling is not implemented. FS supports
+and HID handles/read-only mapping. HID sampling is described under step 6. FS supports
 PID/SDK initialization, an actual missing-SD error and read-only SelfNCCH RomFS
 OpenFileDirectly, bounded OpenArchive/OpenFile/CloseArchive and FSFILE
 Read/GetSize/Close. Archive tokens are FS-private monotonic 64-bit identifiers,
@@ -555,3 +555,18 @@ policies require explicit support or documented unsupported results; never claim
 that every peripheral is wired when only button input works.
 Gate: injected input/touch tests, ring wrap/events, disconnect/reconnect, New/Old
 model differences, camera/mic bounds and end-to-end homebrew interaction.
+
+Done so far (`services/hid.c`, `input/input.c`), a port of Azahar's HID at a4b335e:
+hid:USER samples the pad and the touch screen into the shared page's rings at
+HID's 234 Hz, host paced from `snx_ctr_schedule` like the vblank and the DSP's
+frames, with the delta bits, the index_reset timestamps libctru's hidScanInput
+checks, the circle pad averaged over three samples with its direction bits, and
+both pad or touch events signaled each sample. The accelerometer and gyroscope
+are sampled while enabled, reading zero: the host has no motion sensor yet.
+GetSoundVolume, the gyroscope's coefficient and calibration are answered as
+Azahar does. Host input is the keyboard with Azahar's default keys, the first SDL
+gamepad by button position, and `--script ms:hex,...` presses for unattended
+runs. Not done: touch from the host (the window shows only the top screen),
+ir:rst (the New 3DS's C-stick and ZL/ZR), hid:SPVR, the raw circle pad and touch
+entries, the 3D slider. `tests/3ds_hid.c` covers the rings, wrap, events and
+commands.

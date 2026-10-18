@@ -3,4 +3,11 @@
 interface snx::ctr::hid is hid:USER {
     [0xa] GetIPCHandles() -> (handle<copy> memory, handle<copy> pad1, handle<copy> pad2,
                               handle<copy> accelerometer, handle<copy> gyroscope, handle<copy> debug_pad);
+    [0x11] EnableAccelerometer();
+    [0x12] DisableAccelerometer();
+    [0x13] EnableGyroscopeLow();
+    [0x14] DisableGyroscopeLow();
+    [0x15] GetGyroscopeLowRawToDpsCoefficient() -> u32 coefficient;
+    [0x16] GetGyroscopeLowCalibrateParam() -> bytes<20> param;
+    [0x17] GetSoundVolume() -> u32 volume;
 }

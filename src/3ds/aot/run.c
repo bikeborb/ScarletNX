@@ -6,6 +6,7 @@
 #include "3ds/runtime/internal.h"
 #include "3ds/gpu/present.h"
 #include "3ds/audio/output.h"
+#include "3ds/input/input.h"
 #include "common/filesystem/host.h"
 #include <inttypes.h>
 #include <stdio.h>
@@ -13,8 +14,8 @@
 
 #define SNX_CTR_RUN_SLICE 1000000u
 
-int snx_ctr_aot_run(const char* directory, SnxCtrModel model, uint64_t limit, unsigned flags, char* error,
-                    size_t error_size) {
+int snx_ctr_aot_run(const char* directory, SnxCtrModel model, uint64_t limit, unsigned flags, const char* script,
+                    char* error, size_t error_size) {
     SnxCtrImage image = {0};
     SnxCtrProcess* process = NULL;
     SnxCtrNative native = {0};
@@ -57,6 +58,10 @@ int snx_ctr_aot_run(const char* directory, SnxCtrModel model, uint64_t limit, un
     /* the DSP's output plays on the default device, and its first two minutes go to <output>/audio.wav */
     wav = snx_path_join(directory, "audio.wav");
     if (!snx_ctr_audio_init(wav)) printf("No audio output: the DSP's frames will not be heard or saved\n");
+    if (!snx_ctr_input_init(script)) {
+        snprintf(error, error_size, "cannot keep the --script presses"); /* out of memory, main checked it */
+        goto done;
+    }
     /* Runs until the game exits or its window is closed, as a Switch game does, or for the --max-blocks budget. The
        dispatch goes in slices so the window's events are seen between them */
     uint64_t executed = 0;
@@ -92,6 +97,7 @@ int snx_ctr_aot_run(const char* directory, SnxCtrModel model, uint64_t limit, un
     }
 done:
     snx_ctr_present_free();
+    snx_ctr_input_free();
     snx_ctr_audio_free();
     snx_ctr_process_free(process);
     free(wav);

@@ -109,6 +109,14 @@ typedef struct {
     uint16_t semaphore_mask;
     uint64_t next_frame_ns; /* host monotonic deadline of the next audio frame */
 } SnxCtrDspService;
+/* hid:USER: the shared page and its events (services/hid.h), and the state of HID's sampling */
+typedef struct {
+    uint32_t objects[6]; /* retained: the shared memory, the two pad or touch events, accelerometer, gyroscope, debug */
+    uint32_t pad_index, touch_index, accelerometer_index, gyroscope_index; /* the entry each writes next */
+    int16_t circle_x[2], circle_y[2]; /* the circle pad's two samples before, which it is averaged with */
+    int32_t accelerometer_enables, gyroscope_enables; /* sampled while positive, counted as Azahar counts them */
+    uint64_t next_pad_ns, next_accelerometer_ns, next_gyroscope_ns; /* host monotonic deadlines */
+} SnxCtrHidService;
 struct SnxCtrProcess {
     SnxCtrRomfs* romfs; /* runtime-owned immutable host filesystem view */
     FsTree* tree;       /* the shared NX-style tree: romfs/exefs read-only, sdmc read-write */
@@ -124,13 +132,13 @@ struct SnxCtrProcess {
     uint32_t last_ipc_service, last_ipc_header;
     uint32_t apt_lock; /* manager-owned object index; independent of client sessions */
     uint32_t apt_phase, apt_notification, apt_parameter;
-    uint32_t hid_objects[6];
     uint32_t shell_closed; /* virtual console starts with its shell open */
     double clock_origin;   /* host monotonic origin for the base ARM11 tick domain */
     CtrSelfArchive self_archives[CTR_SELF_ARCHIVES];
     uint64_t archive_sequence;
     SnxCtrGsp gsp;
     SnxCtrDspService dsp;
+    SnxCtrHidService hid;
     uint64_t svc_count;
     unsigned char physical_owner[];
 };

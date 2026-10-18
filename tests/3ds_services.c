@@ -197,13 +197,13 @@ int main(void) {
         before = count_objects(p);
         request(p, hid_args, 1);
         send(p, hid, SNX_CTR_SVC_RETURN, 0);
-        assert(get(p, 1) == 0xd8600413 && !p->hid_objects[0] && count_objects(p) == before);
+        assert(get(p, 1) == 0xd8600413 && !p->hid.objects[0] && count_objects(p) == before);
         for (unsigned i = 0; i < n; ++i) assert(!snx_ctr_handle_close(p, duplicates[i]));
         request(p, hid_args, 1);
         send(p, hid, SNX_CTR_SVC_RETURN, 0);
         assert(get(p, 0) == 0xa0047 && get(p, 2) == 0x14000000);
         uint32_t shared = get(p, 3);
-        for (unsigned i = 0; i < 6; ++i) assert(snx_ctr_handle_object(p, get(p, 3 + i)) == p->hid_objects[i]);
+        for (unsigned i = 0; i < 6; ++i) assert(snx_ctr_handle_object(p, get(p, 3 + i)) == p->hid.objects[i]);
         r[0] = shared;
         r[1] = 0x10000000;
         r[2] = 1;
@@ -216,12 +216,12 @@ int main(void) {
         assert(snx_ctr_write_ram(p->space, 0x10000000, fill, 1) == SNX_CTR_MEM_PERMISSION);
         for (unsigned i = 0; i < 6; ++i) {
             assert(!snx_ctr_handle_close(p, get(p, 3 + i)));
-            assert(p->objects[p->hid_objects[i]].refs == 1); /* device retains resources */
+            assert(p->objects[p->hid.objects[i]].refs == 1); /* device retains resources */
         }
         request(p, hid_args, 1);
         send(p, hid, SNX_CTR_SVC_RETURN, 0);
         for (unsigned i = 0; i < 6; ++i) {
-            assert(snx_ctr_handle_object(p, get(p, 3 + i)) == p->hid_objects[i]);
+            assert(snx_ctr_handle_object(p, get(p, 3 + i)) == p->hid.objects[i]);
             assert(!snx_ctr_handle_close(p, get(p, 3 + i)));
         }
         uint32_t fs = endpoint(p, srv, "fs:USER");
