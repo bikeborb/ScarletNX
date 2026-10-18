@@ -26,6 +26,11 @@ def main():
     run(['--board-info', '-r'], 2, 'Usage:')
     run(['--output'], 2, 'requires a directory')
     run(['--repo'], 2, 'requires a directory')
+    run(['--script'], 2, '--script requires')
+    for script in ['100', '100:', 'x:1', '100:1;200:2', '100:4000']:  # 4000 is past the HID buttons
+        run(['--script', script, 'game.cia'], 2, '--script requires')
+    run(['-r', '--script', '100:1', 'game.cia'], 2, 'Usage:')
+    run(['-x', '--script', '100:1', 'game.cia'], 2, 'Usage:')
     run(['--board-info', '--repo', '.'], 0, 'Old 3DS')  # --repo is a global data-directory option
     run(['--board-info', '-x'], 2, 'Usage:')
     run([], 2, 'Usage:')
